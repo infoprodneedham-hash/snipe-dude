@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sniper Scope - Building Breach</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: #111; 
+            color: #0f0; 
+            font-family: 'Courier New', monospace; 
+            overflow: hidden;
+            cursor: none; /* Hide default cursor */
+        }
+        canvas { display: block; }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border: 1px solid #0f0;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    SCORE: <span id="score">0</span> | 
+    AMMO: <span id="ammo">5</span> | 
+    STATUS: <span id="status">READY</span>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// Game State
+let score = 0;
+let ammo = 5;
+let mouse = { x: 0, y: 0 };
+let recoil = 0;
+let isReloading = false;
+
+// Building & Windows
+const building = {
+    x: canvas.width / 4,
+    y: canvas.height / 4,
+    w: canvas.width / 2,
+    h: canvas.height / 1.5,
+    rows: 3,
+    cols: 3
+};
+
+// Enemy Logic
+let enemies = [];
+const windowWidth = 60;
+const windowHeight = 80;
+
+function createEnemies() {
+    for (let r = 0; r < building.rows; r++) {
+        for (let c = 0; c < building.cols; c++) {
+            enemies.push({
+                x: building.x + (c + 0.5) * (building.w / building.cols) - windowWidth/2,
+                y: building.y + (r + 0.5) * (building.h / building.rows) - windowHeight/2,
+                active: false,
+                timer: Math.random() * 3000 + 1000,
+                lastChange: 0
+            });
+        }
+    }
+}
+
+// Input
+window.addEventListener('mousemove', (e) => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+
+window.addEventListener('mousedown', () => {
+    if (ammo > 0 && !isReloading) {
+        fire();
+    } else if (ammo <= 0) {
+        reload();
+    }
+});
+
+function fire() {
+    ammo--;
+    recoil = 30; // Jerk the scope up
+    
+    // Check hit
+    enemies.forEach(e => {
+        if (e.active) {
+            if (mouse.x > e.x && mouse.x < e.x + windowWidth &&
+                mouse.y > e.y && mouse.y < e.y + windowHeight) {
+                e.active = false;
+                e.lastChange = Date.now();
+                e.timer = Math.random() * 4000 + 2000;
+                score += 100;
+                document.getElementById('score').innerText = score;
+            }
+        }
+    });
+
+    if (ammo === 0) reload();
+}
+
+function reload() {
+    isReloading = true;
+    document.getElementById('status').innerText = "RELOADING...";
+    setTimeout(() => {
+        ammo = 5;
+        isReloading = false;
+        document.getElementById('status').innerText = "READY";
+        document.getElementById('ammo').innerText = ammo;
+    }, 1500);
+}
+
+function update() {
+    const now = Date.now();
+
+    // Recoil recovery
+    if (recoil > 0) recoil -= 2;
+
+    // Enemy AI
+    enemies.forEach(e => {
+        if (now - e.lastChange > e.timer) {
+            e.active = !e.active;
+            e.lastChange = now;
+            e.timer = e.active ? (Math.random() * 2000 + 500) : (Math.random() * 4000 + 1000);
+        }
+    });
+
+    document.getElementById('ammo').innerText = ammo;
+    draw();
+    requestAnimationFrame(update);
+}
+
+function draw() {
+    // Clear & Background
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw Building
+    ctx.fillStyle = '#16213e';
+    ctx.fillRect(building.x, building.y, building.w, building.h);
+    
+    // Draw Windows & Enemies
+    enemies.forEach(e => {
+        // Window frame
+        ctx.fillStyle = '#0f3460';
+        ctx.fillRect(e.x, e.y, windowWidth, windowHeight);
+        
+        // Enemy (The "Bad Guy")
+        if (e.active) {
+            ctx.fillStyle = '#e94560'; // Red target
+            ctx.fillRect(e.x + 10, e.y + 20, windowWidth - 20, windowHeight - 20);
+            // Stick figure head
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(e.x + windowWidth/2, e.y + 35, 10, 0, Math.PI*2);
+            ctx.fill();
+        }
+    });
+
+    // Draw Scope Lens (Blackout surrounding)
+    const scopeX = mouse.x;
+    const scopeY = mouse.y - recoil;
+    const radius = 150;
+
+    ctx.save();
+    // Create the "binocular" or scope effect
+    ctx.beginPath();
+    ctx.rect(0, 0, canvas.width, canvas.height);
+    ctx.arc(scopeX, scopeY, radius, 0, Math.PI * 2, true);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+    ctx.fill();
+    
+    // Scope Circle Border
+    ctx.strokeStyle = '#0f0';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(scopeX, scopeY, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Crosshairs
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    // Vertical
+    ctx.moveTo(scopeX, scopeY - radius);
+    ctx.lineTo(scopeX, scopeY + radius);
+    // Horizontal
+    ctx.moveTo(scopeX - radius, scopeY);
+    ctx.lineTo(scopeX + radius, scopeY);
+    ctx.stroke();
+    
+    // Center Dot
+    ctx.fillStyle = 'red';
+    ctx.beginPath();
+    ctx.arc(scopeX, scopeY, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+createEnemies();
+update();
+
+// Resize handling
+window.onresize = () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+};
+</script>
+</body>
+</html>
