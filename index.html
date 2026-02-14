@@ -2,103 +2,71 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sniper Scope - Tactical Breach</title>
+    <title>Sniper Scope - Night Vision</title>
     <style>
-        body { margin: 0; background: #050505; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; cursor: none; }
+        body { margin: 0; background: #0a0a0a; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; cursor: none; }
         canvas { display: block; }
         #ui {
             position: absolute; top: 20px; left: 20px; pointer-events: none;
             background: rgba(0,20,0,0.8); padding: 15px; border: 2px solid #0f0;
             text-shadow: 0 0 5px #0f0; z-index: 10;
         }
-        .stat { margin-bottom: 5px; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div id="ui">
-    <div class="stat">SCORE: <span id="score">0</span></div>
-    <div class="stat">AMMO: <span id="ammo">6/6</span></div>
-    <div class="stat">ACCURACY: <span id="hits">0</span>/3 HITS</div>
-    <div class="stat">STATUS: <span id="status">READY</span></div>
+    <div>SCORE: <span id="score">0</span></div>
+    <div>AMMO: <span id="ammo">6/6</span></div>
+    <div>STREAK: <span id="hits">0</span>/3 HITS</div>
+    <div>STATUS: <span id="status">NVG ACTIVE</span></div>
 </div>
 
 <canvas id="gameCanvas"></canvas>
 
 <script>
-/** * AUDIO ENGINE (Procedural Sound Effects)
- */
+/** AUDIO ENGINE **/
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-function playShotSound() {
+function playShot() {
     const osc = audioCtx.createOscillator();
     const noise = audioCtx.createBufferSource();
     const gain = audioCtx.createGain();
-    
-    // Create white noise for the "crack" of the rifle
-    const bufferSize = audioCtx.sampleRate * 0.1;
-    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-    
+    for (let i = 0; i < buffer.length; i++) data[i] = Math.random() * 2 - 1;
     noise.buffer = buffer;
-    gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-    
-    noise.connect(gain);
-    gain.connect(audioCtx.destination);
+    noise.connect(gain); gain.connect(audioCtx.destination);
     noise.start();
 }
 
-function playReloadSound() {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.2);
-}
-
-/**
- * GAME ENGINE
- */
+/** GAME STATE **/
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-let score = 0;
-let ammo = 6;
-let hitsInClip = 0;
-let shotsFiredInClip = 0;
-let isReloading = false;
-let mouse = { x: 0, y: 0 };
-let recoil = 0;
+let score = 0, ammo = 6, hitsInClip = 0, isReloading = false;
+let mouse = { x: 0, y: 0 }, recoil = 0;
 
-// Search Lights
-const searchLights = [
-    { x: 100, y: 100, dx: 2, dy: 1.5, r: 150 },
-    { x: canvas.width - 100, y: 300, dx: -1.5, dy: 2, r: 200 }
-];
-
-// Building Config
-const building = { x: canvas.width / 4, y: canvas.height / 4, w: canvas.width / 2, h: canvas.height / 1.5, rows: 3, cols: 3 };
+// Brighter targets/building for visibility
+const building = { x: canvas.width/4, y: canvas.height/4, w: canvas.width/2, h: canvas.height/1.5 };
 const winW = 60, winH = 80;
 let enemies = [];
 
+// Moving Search Lights
+const searchLights = [
+    { x: 200, y: 200, dx: 3, dy: 2, r: 180 },
+    { x: canvas.width-200, y: 400, dx: -2, dy: 3, r: 220 }
+];
+
 function initEnemies() {
-    enemies = [];
-    for (let r = 0; r < building.rows; r++) {
-        for (let c = 0; c < building.cols; c++) {
+    for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
             enemies.push({
-                x: building.x + (c + 0.5) * (building.w / building.cols) - winW/2,
-                y: building.y + (r + 0.5) * (building.h / building.rows) - winH/2,
+                x: building.x + (c + 0.5) * (building.w / 3) - winW/2,
+                y: building.y + (r + 0.5) * (building.h / 3) - winH/2,
                 active: false,
                 timer: Math.random() * 3000 + 1000,
                 lastChange: Date.now()
@@ -112,39 +80,23 @@ window.addEventListener('mousedown', () => { if(ammo > 0 && !isReloading) fire()
 
 function fire() {
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    playShotSound();
-    
+    playShot();
     ammo--;
-    shotsFiredInClip++;
-    recoil = 40;
+    recoil = 45;
     
-    let hitAnything = false;
-    const targetY = mouse.y - recoil; // Check against scope center after recoil start
-
     enemies.forEach(e => {
         if (e.active) {
-            const headY = e.y + 35;
             const headX = e.x + winW/2;
-            const distToHead = Math.hypot(mouse.x - headX, mouse.y - headY);
+            const headY = e.y + 35;
+            const dist = Math.hypot(mouse.x - headX, mouse.y - headY);
 
-            // Headshot Detection (Small Radius)
-            if (distToHead < 12) {
-                score += 500;
-                e.active = false;
-                hitAnything = true;
-                hitsInClip++;
-            } 
-            // Body Shot Detection
-            else if (mouse.x > e.x + 10 && mouse.x < e.x + winW - 10 &&
-                     mouse.y > e.y + 45 && mouse.y < e.y + winH) {
-                score += 150;
-                e.active = false;
-                hitAnything = true;
-                hitsInClip++;
+            if (dist < 15) { // Headshot
+                score += 500; e.active = false; hitsInClip++;
+            } else if (mouse.x > e.x+10 && mouse.x < e.x+winW-10 && mouse.y > e.y+45 && mouse.y < e.y+winH) {
+                score += 150; e.active = false; hitsInClip++;
             }
         }
     });
-
     updateUI();
     if (ammo === 0) reload();
 }
@@ -152,122 +104,105 @@ function fire() {
 function reload() {
     isReloading = true;
     document.getElementById('status').innerText = "RELOADING...";
-    
     setTimeout(() => {
-        // Bonus ammo logic: 2 hits out of the first 3 shots of the clip (or just 2 hits per clip)
-        if (hitsInClip >= 2) {
-            ammo = 6; 
-            document.getElementById('status').innerText = "CLIP REPLENISHED!";
-        } else {
-            ammo = 6;
-            document.getElementById('status').innerText = "RELOAD COMPLETE";
-        }
-        playReloadSound();
-        hitsInClip = 0;
-        shotsFiredInClip = 0;
-        isReloading = false;
-        updateUI();
+        ammo = 6;
+        if (hitsInClip >= 2) document.getElementById('status').innerText = "CLIP BONUS!";
+        else document.getElementById('status').innerText = "NVG ACTIVE";
+        hitsInClip = 0; isReloading = false; updateUI();
     }, 1500);
 }
 
 function updateUI() {
     document.getElementById('score').innerText = score;
-    document.getElementById('ammo').innerText = `${ammo}/6`;
+    document.getElementById('ammo').innerText = ammo + "/6";
     document.getElementById('hits').innerText = hitsInClip;
 }
 
 function update() {
-    const now = Date.now();
-    if (recoil > 0) recoil *= 0.85;
-
-    // Move Search Lights
+    if (recoil > 0) recoil *= 0.8;
     searchLights.forEach(s => {
         s.x += s.dx; s.y += s.dy;
         if (s.x < 0 || s.x > canvas.width) s.dx *= -1;
         if (s.y < 0 || s.y > canvas.height) s.dy *= -1;
     });
-
-    // Enemy AI
     enemies.forEach(e => {
-        if (now - e.lastChange > e.timer) {
-            e.active = !e.active;
-            e.lastChange = now;
-            e.timer = e.active ? (Math.random() * 2000 + 800) : (Math.random() * 4000 + 1000);
+        if (Date.now() - e.lastChange > e.timer) {
+            e.active = !e.active; e.lastChange = Date.now();
+            e.timer = e.active ? 1500 : 3000;
         }
     });
-
     draw();
     requestAnimationFrame(update);
 }
 
 function draw() {
-    ctx.fillStyle = '#050505';
+    // 1. Ambient Background (Visible but dark)
+    ctx.fillStyle = '#111'; 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw Building & Windows
-    ctx.fillStyle = '#0a0a0a';
+    // 2. Draw Building & Targets
+    ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(building.x, building.y, building.w, building.h);
     
     enemies.forEach(e => {
-        ctx.fillStyle = '#111';
-        ctx.fillRect(e.x, e.y, winW, winH);
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(e.x, e.y, winW, winH); // Windows
         if (e.active) {
-            ctx.fillStyle = '#300'; // Dark silhouette
-            ctx.fillRect(e.x + 10, e.y + 45, winW - 20, 30); // Body
+            ctx.fillStyle = '#333'; // Target body
+            ctx.fillRect(e.x + 10, e.y + 40, winW - 20, 35);
             ctx.beginPath();
             ctx.arc(e.x + winW/2, e.y + 35, 10, 0, Math.PI*2); // Head
             ctx.fill();
         }
     });
 
-    // --- LIGHTING LAYER ---
+    // 3. Search Lights (Highlighting)
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalCompositeOperation = 'screen';
     searchLights.forEach(s => {
-        const grad = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r);
-        grad.addColorStop(0, 'rgba(255, 255, 150, 0.2)');
-        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r);
+        g.addColorStop(0, 'rgba(255, 255, 180, 0.4)');
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.fillRect(0,0, canvas.width, canvas.height);
     });
     ctx.restore();
 
-    // --- SCOPE OVERLAY ---
+    // 4. NIGHT VISION SCOPE
     const sX = mouse.x;
     const sY = mouse.y - recoil;
-    const rad = 180;
+    const rad = 170;
 
     ctx.save();
-    // Darkness mask
+    // Darken everything outside the scope
     ctx.beginPath();
     ctx.rect(0,0, canvas.width, canvas.height);
     ctx.arc(sX, sY, rad, 0, Math.PI*2, true);
-    ctx.fillStyle = "rgba(0,0,0,0.95)";
+    ctx.fillStyle = "rgba(0,0,0,0.85)";
     ctx.fill();
 
-    // Scope Lens Tint
+    // The NVG "Green Screen" effect inside the scope
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.fillStyle = 'rgba(0, 255, 50, 0.3)';
     ctx.beginPath();
     ctx.arc(sX, sY, rad, 0, Math.PI*2);
-    ctx.fillStyle = "rgba(0, 50, 0, 0.1)";
     ctx.fill();
-    ctx.strokeStyle = '#0f0';
-    ctx.lineWidth = 4;
-    ctx.stroke();
 
-    // Crosshairs
-    ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
-    ctx.lineWidth = 1;
+    // Crosshairs & UI
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = '#0f0';
+    ctx.lineWidth = 2;
+    ctx.stroke(); // Circle border
+    
     ctx.beginPath();
+    ctx.lineWidth = 1;
     ctx.moveTo(sX, sY - rad); ctx.lineTo(sX, sY + rad);
     ctx.moveTo(sX - rad, sY); ctx.lineTo(sX + rad, sY);
     ctx.stroke();
-    
-    // Killzone indicators (Headshot guide)
-    ctx.strokeStyle = 'red';
-    ctx.beginPath();
-    ctx.arc(sX, sY, 12, 0, Math.PI*2);
-    ctx.stroke();
 
+    // Red Dot
+    ctx.fillStyle = 'red';
+    ctx.beginPath(); ctx.arc(sX, sY, 3, 0, Math.PI*2); ctx.fill();
     ctx.restore();
 }
 
