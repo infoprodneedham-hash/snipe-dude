@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sniper Scope - Night Vision</title>
+    <title>Sniper Scope - Heavy Searchlights</title>
     <style>
-        body { margin: 0; background: #0a0a0a; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; cursor: none; }
+        body { margin: 0; background: #000; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; cursor: none; }
         canvas { display: block; }
         #ui {
             position: absolute; top: 20px; left: 20px; pointer-events: none;
-            background: rgba(0,20,0,0.8); padding: 15px; border: 2px solid #0f0;
+            background: rgba(0,20,0,0.85); padding: 15px; border: 2px solid #0f0;
             text-shadow: 0 0 5px #0f0; z-index: 10;
         }
     </style>
@@ -16,32 +16,27 @@
 <body>
 
 <div id="ui">
-    <div>SCORE: <span id="score">0</span></div>
-    <div>AMMO: <span id="ammo">6/6</span></div>
+    <div>SCORE: <span id="score">0</span> | AMMO: <span id="ammo">6/6</span></div>
     <div>STREAK: <span id="hits">0</span>/3 HITS</div>
-    <div>STATUS: <span id="status">NVG ACTIVE</span></div>
+    <div>STATUS: <span id="status">SCANNING SECTOR</span></div>
 </div>
 
 <canvas id="gameCanvas"></canvas>
 
 <script>
-/** AUDIO ENGINE **/
+/** AUDIO **/
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function playShot() {
-    const osc = audioCtx.createOscillator();
-    const noise = audioCtx.createBufferSource();
-    const gain = audioCtx.createGain();
-    const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < buffer.length; i++) data[i] = Math.random() * 2 - 1;
-    noise.buffer = buffer;
-    gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-    noise.connect(gain); gain.connect(audioCtx.destination);
-    noise.start();
+    const n = audioCtx.createBufferSource(), g = audioCtx.createGain();
+    const b = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < b.length; i++) d[i] = Math.random() * 2 - 1;
+    n.buffer = b; g.gain.setValueAtTime(0.4, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+    n.connect(g); g.connect(audioCtx.destination); n.start();
 }
 
-/** GAME STATE **/
+/** SETUP **/
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth;
@@ -50,15 +45,14 @@ canvas.height = window.innerHeight;
 let score = 0, ammo = 6, hitsInClip = 0, isReloading = false;
 let mouse = { x: 0, y: 0 }, recoil = 0;
 
-// Brighter targets/building for visibility
 const building = { x: canvas.width/4, y: canvas.height/4, w: canvas.width/2, h: canvas.height/1.5 };
 const winW = 60, winH = 80;
 let enemies = [];
 
-// Moving Search Lights
+// Large, sweeping searchlights
 const searchLights = [
-    { x: 200, y: 200, dx: 3, dy: 2, r: 180 },
-    { x: canvas.width-200, y: 400, dx: -2, dy: 3, r: 220 }
+    { x: 100, y: 100, dx: 1.2, dy: 0.8, r: 250, angle: 0 },
+    { x: canvas.width-100, y: canvas.height-100, dx: -0.9, dy: -1.1, r: 300, angle: Math.PI }
 ];
 
 function initEnemies() {
@@ -81,18 +75,14 @@ window.addEventListener('mousedown', () => { if(ammo > 0 && !isReloading) fire()
 function fire() {
     if (audioCtx.state === 'suspended') audioCtx.resume();
     playShot();
-    ammo--;
-    recoil = 45;
+    ammo--; recoil = 50;
     
     enemies.forEach(e => {
         if (e.active) {
-            const headX = e.x + winW/2;
-            const headY = e.y + 35;
-            const dist = Math.hypot(mouse.x - headX, mouse.y - headY);
-
-            if (dist < 15) { // Headshot
-                score += 500; e.active = false; hitsInClip++;
-            } else if (mouse.x > e.x+10 && mouse.x < e.x+winW-10 && mouse.y > e.y+45 && mouse.y < e.y+winH) {
+            const hX = e.x + winW/2, hY = e.y + 35;
+            const d = Math.hypot(mouse.x - hX, mouse.y - hY);
+            if (d < 15) { score += 500; e.active = false; hitsInClip++; }
+            else if (mouse.x > e.x+10 && mouse.x < e.x+winW-10 && mouse.y > e.y+45 && mouse.y < e.y+winH) {
                 score += 150; e.active = false; hitsInClip++;
             }
         }
@@ -106,8 +96,7 @@ function reload() {
     document.getElementById('status').innerText = "RELOADING...";
     setTimeout(() => {
         ammo = 6;
-        if (hitsInClip >= 2) document.getElementById('status').innerText = "CLIP BONUS!";
-        else document.getElementById('status').innerText = "NVG ACTIVE";
+        document.getElementById('status').innerText = hitsInClip >= 2 ? "BONUS GRANTED" : "SCANNING SECTOR";
         hitsInClip = 0; isReloading = false; updateUI();
     }, 1500);
 }
@@ -119,16 +108,16 @@ function updateUI() {
 }
 
 function update() {
-    if (recoil > 0) recoil *= 0.8;
+    if (recoil > 0) recoil *= 0.82;
     searchLights.forEach(s => {
         s.x += s.dx; s.y += s.dy;
-        if (s.x < 0 || s.x > canvas.width) s.dx *= -1;
-        if (s.y < 0 || s.y > canvas.height) s.dy *= -1;
+        if (s.x < -100 || s.x > canvas.width + 100) s.dx *= -1;
+        if (s.y < -100 || s.y > canvas.height + 100) s.dy *= -1;
     });
     enemies.forEach(e => {
         if (Date.now() - e.lastChange > e.timer) {
             e.active = !e.active; e.lastChange = Date.now();
-            e.timer = e.active ? 1500 : 3000;
+            e.timer = e.active ? 2000 : 4000;
         }
     });
     draw();
@@ -136,73 +125,69 @@ function update() {
 }
 
 function draw() {
-    // 1. Ambient Background (Visible but dark)
-    ctx.fillStyle = '#111'; 
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 2. Draw Building & Targets
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(building.x, building.y, building.w, building.h);
+    // 1. BASE LAYER: Draw everything as if it were fully lit
+    ctx.fillStyle = '#111'; ctx.fillRect(0,0, canvas.width, canvas.height);
+    ctx.fillStyle = '#222'; ctx.fillRect(building.x, building.y, building.w, building.h);
     
     enemies.forEach(e => {
-        ctx.fillStyle = '#050505';
-        ctx.fillRect(e.x, e.y, winW, winH); // Windows
+        ctx.fillStyle = '#000'; ctx.fillRect(e.x, e.y, winW, winH);
         if (e.active) {
-            ctx.fillStyle = '#333'; // Target body
-            ctx.fillRect(e.x + 10, e.y + 40, winW - 20, 35);
-            ctx.beginPath();
-            ctx.arc(e.x + winW/2, e.y + 35, 10, 0, Math.PI*2); // Head
-            ctx.fill();
+            ctx.fillStyle = '#fff'; // White silhouette for high visibility in light
+            ctx.fillRect(e.x + 15, e.y + 45, winW - 30, 30);
+            ctx.beginPath(); ctx.arc(e.x + winW/2, e.y + 35, 10, 0, Math.PI*2); ctx.fill();
         }
     });
 
-    // 3. Search Lights (Highlighting)
+    // 2. THE DARKNESS MASK (The Secret Sauce)
+    // We create a temporary canvas/overlay to subtract light from
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-in'; 
+    
+    // Create a path for all light sources (Scope + Searchlights)
+    ctx.beginPath();
+    // The Scope Hole
+    const sX = mouse.x, sY = mouse.y - recoil;
+    ctx.arc(sX, sY, 180, 0, Math.PI*2);
+    
+    // The Searchlight Holes
+    searchLights.forEach(s => {
+        ctx.moveTo(s.x + s.r, s.y);
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    });
+    
+    // This "destination-in" makes it so only areas inside the circles remain visible
+    ctx.fill();
+    ctx.restore();
+
+    // 3. ADD ATMOSPHERICS (The Glow)
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     searchLights.forEach(s => {
-        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r);
-        g.addColorStop(0, 'rgba(255, 255, 180, 0.4)');
+        const g = ctx.createRadialGradient(s.x, s.y, s.r * 0.5, s.x, s.y, s.r);
+        g.addColorStop(0, 'rgba(255, 255, 200, 0.15)');
         g.addColorStop(1, 'transparent');
         ctx.fillStyle = g;
         ctx.fillRect(0,0, canvas.width, canvas.height);
     });
     ctx.restore();
 
-    // 4. NIGHT VISION SCOPE
-    const sX = mouse.x;
-    const sY = mouse.y - recoil;
-    const rad = 170;
-
+    // 4. SCOPE OVERLAY (NVG Tint)
     ctx.save();
-    // Darken everything outside the scope
-    ctx.beginPath();
-    ctx.rect(0,0, canvas.width, canvas.height);
-    ctx.arc(sX, sY, rad, 0, Math.PI*2, true);
-    ctx.fillStyle = "rgba(0,0,0,0.85)";
-    ctx.fill();
-
-    // The NVG "Green Screen" effect inside the scope
-    ctx.globalCompositeOperation = 'overlay';
-    ctx.fillStyle = 'rgba(0, 255, 50, 0.3)';
-    ctx.beginPath();
-    ctx.arc(sX, sY, rad, 0, Math.PI*2);
-    ctx.fill();
-
-    // Crosshairs & UI
-    ctx.globalCompositeOperation = 'source-over';
     ctx.strokeStyle = '#0f0';
-    ctx.lineWidth = 2;
-    ctx.stroke(); // Circle border
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(sX, sY, 180, 0, Math.PI*2); ctx.stroke();
     
-    ctx.beginPath();
-    ctx.lineWidth = 1;
-    ctx.moveTo(sX, sY - rad); ctx.lineTo(sX, sY + rad);
-    ctx.moveTo(sX - rad, sY); ctx.lineTo(sX + rad, sY);
+    // NVG Tint inside
+    ctx.globalCompositeOperation = 'color-burn';
+    ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+    ctx.fill();
+    
+    // Crosshairs
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.beginPath(); ctx.lineWidth = 1;
+    ctx.moveTo(sX, sY - 180); ctx.lineTo(sX, sY + 180);
+    ctx.moveTo(sX - 180, sY); ctx.lineTo(sX + 180, sY);
     ctx.stroke();
-
-    // Red Dot
-    ctx.fillStyle = 'red';
-    ctx.beginPath(); ctx.arc(sX, sY, 3, 0, Math.PI*2); ctx.fill();
     ctx.restore();
 }
 
