@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sniper Scope - Pinpoint Flash</title>
+    <title>Sniper Scope - Tactical Precision</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; cursor: none; }
         canvas { display: block; }
@@ -123,7 +123,7 @@ function update() {
     });
 
     enemies.forEach(e => {
-        if (e.flashActive > 0) e.flashActive--; // Flash lasts a few frames
+        if (e.flashActive > 0) e.flashActive--; 
 
         if (!e.isElite || (e.isElite && e.shotsTaken === 0)) {
             if (now - e.lastChange > e.timer) {
@@ -141,10 +141,10 @@ function update() {
 
         if (e.active && e.isElite && now > e.fireTimer && e.shotsTaken < 3) {
             playerHealth--;
-            e.flashActive = 10; // Trigger the pinpoint flash
+            e.flashActive = 15; // Muzzle flash duration
             e.shotsTaken++;
             playShot(false);
-            e.fireTimer = now + 3000; // One shot every 3 seconds
+            e.fireTimer = now + 3000; 
             updateUI();
             if (playerHealth <= 0) gameOver = true;
         }
@@ -154,33 +154,21 @@ function update() {
 }
 
 function draw() {
-    // Background (No screen flash)
+    // 1. Scene Base
     ctx.fillStyle = '#050505';
     ctx.fillRect(0,0, canvas.width, canvas.height);
-
-    // 1. Building and Enemies
     ctx.fillStyle = '#1a1a1a'; ctx.fillRect(building.x, building.y, building.w, building.h);
+    
     enemies.forEach(e => {
         ctx.fillStyle = '#000'; ctx.fillRect(e.x, e.y, winW, winH);
         if (e.active) {
             ctx.fillStyle = e.isElite ? '#fff' : '#777'; 
-            ctx.fillRect(e.x + 15, e.y + 45, winW - 30, 30); // Body
-            ctx.beginPath(); ctx.arc(e.x + winW/2, e.y + 35, 10, 0, Math.PI*2); ctx.fill(); // Head
-            
-            // SMALL PINPOINT MUZZLE FLASH
-            if (e.flashActive > 0) {
-                ctx.fillStyle = '#ffff00';
-                ctx.beginPath();
-                ctx.arc(e.x + winW/2 + 12, e.y + 45, 3, 0, Math.PI*2); // 3mm pinpoint flash
-                ctx.fill();
-                // Add a small sharp glint
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-                ctx.beginPath(); ctx.moveTo(e.x+winW/2+8, e.y+45); ctx.lineTo(e.x+winW/2+16, e.y+45); ctx.stroke();
-            }
+            ctx.fillRect(e.x + 15, e.y + 45, winW - 30, 30);
+            ctx.beginPath(); ctx.arc(e.x + winW/2, e.y + 35, 10, 0, Math.PI*2); ctx.fill();
         }
     });
 
-    // 2. Searchlight Masking (Restored Logic)
+    // 2. The Mask (Searchlights and Scope)
     ctx.save();
     ctx.globalCompositeOperation = 'destination-in'; 
     ctx.beginPath();
@@ -190,7 +178,7 @@ function draw() {
     ctx.fill();
     ctx.restore();
 
-    // 3. Searchlight Glow
+    // 3. Atmosphere Glow
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     searchLights.forEach(s => {
@@ -200,7 +188,27 @@ function draw() {
     });
     ctx.restore();
 
-    // 4. Scope Overlay
+    // 4. OVERLAY LAYER (Draws ON TOP of the darkness mask)
+    // This ensures the muzzle flash is always visible regardless of light
+    enemies.forEach(e => {
+        if (e.flashActive > 0) {
+            ctx.save();
+            ctx.fillStyle = '#ffff00';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "white";
+            ctx.beginPath();
+            ctx.arc(e.x + winW/2 + 12, e.y + 45, 3, 0, Math.PI*2); 
+            ctx.fill();
+            
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+            ctx.beginPath(); 
+            ctx.moveTo(e.x+winW/2+7, e.y+45); ctx.lineTo(e.x+winW/2+17, e.y+45); 
+            ctx.stroke();
+            ctx.restore();
+        }
+    });
+
+    // 5. NVG Scope UI
     ctx.save();
     ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(sX, sY, 180, 0, Math.PI*2); ctx.stroke();
@@ -213,7 +221,7 @@ function draw() {
     if(gameOver) {
         ctx.fillStyle = "rgba(0,0,0,0.95)"; ctx.fillRect(0,0,canvas.width,canvas.height);
         ctx.fillStyle = "red"; ctx.font = "24px Courier New"; ctx.textAlign = "center";
-        ctx.fillText("OPERATOR ELIMINATED - CLICK TO RESTART", canvas.width/2, canvas.height/2);
+        ctx.fillText("OPERATOR KIA - CLICK TO RESTART", canvas.width/2, canvas.height/2);
     }
 }
 
