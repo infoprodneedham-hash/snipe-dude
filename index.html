@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sniper Scope - Under Fire</title>
+    <title>Sniper Scope - Counter-Fire</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; cursor: none; }
         canvas { display: block; }
@@ -20,8 +20,7 @@
 <div id="ui">
     <div>SCORE: <span id="score">0</span> | AMMO: <span id="ammo">6/6</span></div>
     <div id="health-ui">HEALTH: [|||]</div>
-    <div>STREAK: <span id="hits">0</span>/3 HITS</div>
-    <div id="status">SCANNING SECTOR</div>
+    <div id="status">SCANNING...</div>
 </div>
 
 <canvas id="gameCanvas"></canvas>
@@ -29,12 +28,36 @@
 <script>
 /** AUDIO ENGINE **/
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function playSound(freq, type, vol, dur) {
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    o.type = type; o.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    g.gain.setValueAtTime(vol, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + dur);
-    o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + dur);
+
+function playShot(isPlayer) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const noise = audioCtx.createBufferSource();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    
+    const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < buffer.length; i++) data[i] = Math.random() * 2 - 1;
+    
+    noise.buffer = buffer;
+    
+    if (isPlayer) {
+        // Heavy, booming rifle
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1000, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.6, audioCtx.currentTime);
+    } else {
+        // Sharp, snapping enemy fire
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(1500, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    }
+    
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    noise.start();
 }
 
 /** GAME SETUP **/
@@ -52,8 +75,8 @@ const winW = 60, winH = 80;
 let enemies = [];
 
 const searchLights = [
-    { x: 100, y: 100, dx: 1.5, dy: 1, r: 250 },
-    { x: canvas.width-100, y: canvas.height-100, dx: -1.2, dy: -1.3, r: 300 }
+    { x: 150, y: 150, dx: 1.8, dy: 1.2, r: 280 },
+    { x: canvas.width-150, y: canvas.height-150, dx: -1.5, dy: -1.4, r: 320 }
 ];
 
 function initEnemies() {
@@ -64,7 +87,7 @@ function initEnemies() {
                 y: building.y + (r + 0.5) * (building.h / 3) - winH/2,
                 active: false, isElite: false,
                 timer: Math.random() * 3000 + 1000, lastChange: Date.now(),
-                fireTimer: 0, shotsTaken: 0
+                fireTimer: 0, muzzleFlash: 0
             });
         }
     }
@@ -77,9 +100,8 @@ window.addEventListener('mousedown', () => {
 });
 
 function fire() {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    playSound(150, 'sawtooth', 0.2, 0.1); // Rifle sound
-    ammo--; recoil = 50;
+    playShot(true);
+    ammo--; recoil = 55;
     
     enemies.forEach(e => {
         if (e.active) {
@@ -100,7 +122,7 @@ function reload() {
     document.getElementById('status').innerText = "RELOADING...";
     setTimeout(() => {
         ammo = 6; isReloading = false;
-        document.getElementById('status').innerText = hitsInClip >= 2 ? "CLIP RECOVERY" : "READY";
+        document.getElementById('status').innerText = "READY";
         hitsInClip = 0; updateUI();
     }, 1500);
 }
@@ -108,7 +130,6 @@ function reload() {
 function updateUI() {
     document.getElementById('score').innerText = score;
     document.getElementById('ammo').innerText = ammo + "/6";
-    document.getElementById('hits').innerText = hitsInClip;
     let hpStr = "HEALTH: " + "[|".repeat(playerHealth) + " ".repeat(3-playerHealth) + "]";
     document.getElementById('health-ui').innerHTML = playerHealth <= 1 ? `<span class="warning">${hpStr}</span>` : hpStr;
 }
@@ -116,7 +137,7 @@ function updateUI() {
 function update() {
     if (gameOver) return;
     const now = Date.now();
-    if (recoil > 0) recoil *= 0.82;
+    if (recoil > 0) recoil *= 0.8;
     if (screenFlash > 0) screenFlash -= 0.05;
 
     searchLights.forEach(s => {
@@ -126,28 +147,27 @@ function update() {
     });
 
     enemies.forEach(e => {
+        if (e.muzzleFlash > 0) e.muzzleFlash -= 0.1;
+
         if (now - e.lastChange > e.timer) {
-            e.active = !e.active;
-            e.lastChange = now;
+            e.active = !e.active; e.lastChange = now;
             if (e.active) {
                 enemySpawnCount++;
                 e.isElite = (enemySpawnCount % 5 === 0);
-                e.fireTimer = now + 3000; // 3 seconds to first shot
-                e.shotsTaken = 0;
+                e.fireTimer = now + 3000;
             }
         }
 
-        // Elite Shooting Logic
         if (e.active && e.isElite && now > e.fireTimer) {
             playerHealth--;
-            screenFlash = 0.5;
-            playSound(100, 'square', 0.3, 0.2); // Enemy shot sound
-            e.fireTimer = now + 1000; // Subsequent shots every 1s
-            e.shotsTaken++;
+            screenFlash = 0.4;
+            e.muzzleFlash = 1.0; // Trigger visual flash
+            playShot(false);     // Trigger enemy sound
+            e.fireTimer = now + 1000;
             updateUI();
             if (playerHealth <= 0) {
                 gameOver = true;
-                document.getElementById('status').innerText = "K.I.A. - CLICK TO RESTART";
+                document.getElementById('status').innerText = "GAME OVER";
             }
         }
     });
@@ -156,27 +176,31 @@ function update() {
 }
 
 function draw() {
-    // Background & Screen Flash
-    ctx.fillStyle = screenFlash > 0 ? `rgba(255, 0, 0, ${screenFlash})` : '#050505';
+    // Screen Hit Effect
+    ctx.fillStyle = screenFlash > 0 ? `rgba(150, 0, 0, ${screenFlash})` : '#050505';
     ctx.fillRect(0,0, canvas.width, canvas.height);
 
-    // 1. Scene
+    // 1. Scene Base
     ctx.fillStyle = '#111'; ctx.fillRect(building.x, building.y, building.w, building.h);
     enemies.forEach(e => {
         ctx.fillStyle = '#000'; ctx.fillRect(e.x, e.y, winW, winH);
         if (e.active) {
-            ctx.fillStyle = e.isElite ? '#fff' : '#888'; 
+            ctx.fillStyle = e.isElite ? '#fff' : '#666'; 
             ctx.fillRect(e.x + 15, e.y + 45, winW - 30, 30);
             ctx.beginPath(); ctx.arc(e.x + winW/2, e.y + 35, 10, 0, Math.PI*2); ctx.fill();
-            // Elite Glint
-            if(e.isElite && Math.sin(Date.now()/100) > 0) {
-                ctx.fillStyle = 'red';
-                ctx.beginPath(); ctx.arc(e.x + winW/2 + 5, e.y + 35, 2, 0, Math.PI*2); ctx.fill();
+            
+            // Muzzle Flash Effect
+            if (e.muzzleFlash > 0) {
+                const grad = ctx.createRadialGradient(e.x+winW/2, e.y+45, 0, e.x+winW/2, e.y+45, 40);
+                grad.addColorStop(0, `rgba(255, 255, 100, ${e.muzzleFlash})`);
+                grad.addColorStop(1, 'transparent');
+                ctx.fillStyle = grad;
+                ctx.beginPath(); ctx.arc(e.x+winW/2, e.y+45, 40, 0, Math.PI*2); ctx.fill();
             }
         }
     });
 
-    // 2. The Darkness Mask
+    // 2. The Light Mask
     ctx.save();
     ctx.globalCompositeOperation = 'destination-in'; 
     ctx.beginPath();
@@ -186,28 +210,25 @@ function draw() {
     ctx.fill();
     ctx.restore();
 
-    // 3. Searchlight Glow
+    // 3. Atmos/Searchlight Glow
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     searchLights.forEach(s => {
-        const g = ctx.createRadialGradient(s.x, s.y, s.r*0.5, s.x, s.y, s.r);
-        g.addColorStop(0, 'rgba(200, 255, 200, 0.2)'); g.addColorStop(1, 'transparent');
+        const g = ctx.createRadialGradient(s.x, s.y, s.r*0.4, s.x, s.y, s.r);
+        g.addColorStop(0, 'rgba(255, 255, 200, 0.15)'); g.addColorStop(1, 'transparent');
         ctx.fillStyle = g; ctx.fillRect(0,0, canvas.width, canvas.height);
     });
     ctx.restore();
 
-    // 4. NVG Scope Overlay
+    // 4. NVG Scope
     ctx.save();
-    ctx.strokeStyle = playerHealth <= 1 ? 'red' : '#0f0';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#0f0'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(sX, sY, 180, 0, Math.PI*2); ctx.stroke();
     
-    // Tint
     ctx.globalCompositeOperation = 'overlay';
-    ctx.fillStyle = 'rgba(0, 255, 50, 0.15)';
+    ctx.fillStyle = 'rgba(0, 255, 100, 0.2)';
     ctx.fill();
     
-    // Crosshairs
     ctx.globalCompositeOperation = 'source-over';
     ctx.beginPath(); ctx.lineWidth = 1;
     ctx.moveTo(sX, sY - 180); ctx.lineTo(sX, sY + 180);
@@ -216,11 +237,10 @@ function draw() {
     ctx.restore();
 
     if(gameOver) {
-        ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.fillStyle = "red"; ctx.font = "40px Courier New"; ctx.textAlign = "center";
-        ctx.fillText("MISSION FAILED", canvas.width/2, canvas.height/2);
-        ctx.font = "20px Courier New";
-        ctx.fillText("ELITE MARKSMAN ELIMINATED YOU", canvas.width/2, canvas.height/2 + 40);
+        ctx.fillStyle = "rgba(0,0,0,0.9)"; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = "red"; ctx.font = "bold 40px Courier New"; ctx.textAlign = "center";
+        ctx.fillText("OPERATOR ELIMINATED", canvas.width/2, canvas.height/2);
+        ctx.font = "20px Courier New"; ctx.fillText("CLICK TO REDEPLOY", canvas.width/2, canvas.height/2 + 50);
     }
 }
 
