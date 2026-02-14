@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sniper Scope - Tactical Duel</title>
+    <title>Sniper Scope - Pinpoint Flash</title>
     <style>
         body { margin: 0; background: #000; color: #0f0; font-family: 'Courier New', monospace; overflow: hidden; cursor: none; }
         canvas { display: block; }
         #ui {
             position: absolute; top: 20px; left: 20px; pointer-events: none;
-            background: rgba(0,20,0,0.85); padding: 15px; border: 2px solid #0f0;
-            text-shadow: 0 0 5px #0f0; z-index: 10;
+            background: rgba(0,10,0,0.9); padding: 15px; border: 1px solid #0f0;
+            z-index: 10;
         }
     </style>
 </head>
@@ -18,7 +18,7 @@
 <div id="ui">
     <div>SCORE: <span id="score">0</span> | AMMO: <span id="ammo">6/6</span></div>
     <div id="health-ui">HEALTH: [|||]</div>
-    <div id="status">SCANNING SECTOR</div>
+    <div id="status">SCANNING...</div>
 </div>
 
 <canvas id="gameCanvas"></canvas>
@@ -34,9 +34,7 @@ function playShot(isPlayer) {
     const data = buffer.getChannelData(0);
     for (let i = 0; i < buffer.length; i++) data[i] = Math.random() * 2 - 1;
     noise.buffer = buffer;
-    
-    // Previous gunshot sounds restored
-    gain.gain.setValueAtTime(isPlayer ? 0.5 : 0.3, audioCtx.currentTime);
+    gain.gain.setValueAtTime(isPlayer ? 0.4 : 0.25, audioCtx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
     noise.connect(gain); gain.connect(audioCtx.destination);
     noise.start();
@@ -48,17 +46,16 @@ const ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth; canvas.height = window.innerHeight;
 
 let score = 0, ammo = 6, hitsInClip = 0, isReloading = false;
-let mouse = { x: 0, y: 0 }, recoil = 0;
-let playerHealth = 3, enemySpawnCount = 0, gameOver = false, screenFlash = 0;
+let mouse = { x: 0, y: 0 }, recoil = 0, playerHealth = 3, enemyCount = 0;
+let gameOver = false;
 
 const building = { x: canvas.width/4, y: canvas.height/4, w: canvas.width/2, h: canvas.height/1.5 };
 const winW = 60, winH = 80;
 let enemies = [];
 
-// Restored large, sweeping searchlights
 const searchLights = [
-    { x: 100, y: 100, dx: 1.2, dy: 0.8, r: 250 },
-    { x: canvas.width-100, y: canvas.height-100, dx: -0.9, dy: -1.1, r: 300 }
+    { x: 100, y: 100, dx: 1.1, dy: 0.7, r: 250 },
+    { x: canvas.width-100, y: canvas.height-100, dx: -0.8, dy: -1.2, r: 300 }
 ];
 
 function initEnemies() {
@@ -69,7 +66,7 @@ function initEnemies() {
                 y: building.y + (r + 0.5) * (building.h / 3) - winH/2,
                 active: false, isElite: false,
                 timer: 2000, lastChange: Date.now(),
-                fireTimer: 0, shotsTaken: 0, muzzleFlash: 0
+                fireTimer: 0, shotsTaken: 0, flashActive: 0
             });
         }
     }
@@ -84,7 +81,6 @@ window.addEventListener('mousedown', () => {
 function fire() {
     playShot(true);
     ammo--; recoil = 50;
-    
     enemies.forEach(e => {
         if (e.active) {
             const hX = e.x + winW/2, hY = e.y + 35;
@@ -118,8 +114,7 @@ function updateUI() {
 function update() {
     if (gameOver) return;
     const now = Date.now();
-    if (recoil > 0) recoil *= 0.82;
-    if (screenFlash > 0) screenFlash -= 0.05;
+    if (recoil > 0) recoil *= 0.85;
 
     searchLights.forEach(s => {
         s.x += s.dx; s.y += s.dy;
@@ -128,31 +123,28 @@ function update() {
     });
 
     enemies.forEach(e => {
-        if (e.muzzleFlash > 0) e.muzzleFlash -= 0.15;
+        if (e.flashActive > 0) e.flashActive--; // Flash lasts a few frames
 
-        // Logic for Standard vs Elite visibility
         if (!e.isElite || (e.isElite && e.shotsTaken === 0)) {
             if (now - e.lastChange > e.timer) {
                 e.active = !e.active;
                 e.lastChange = now;
                 if (e.active) {
-                    enemySpawnCount++;
-                    e.isElite = (enemySpawnCount % 5 === 0);
-                    e.fireTimer = now + 3000; // 3 seconds until first shot
+                    enemyCount++;
+                    e.isElite = (enemyCount % 5 === 0);
+                    e.fireTimer = now + 3000;
                     e.shotsTaken = 0;
-                    e.timer = e.isElite ? 15000 : (Math.random() * 2000 + 1000);
+                    e.timer = e.isElite ? 20000 : (Math.random() * 2000 + 1000);
                 }
             }
         }
 
-        // Elite firing cycle: One shot every 3 seconds for 3 shots
         if (e.active && e.isElite && now > e.fireTimer && e.shotsTaken < 3) {
             playerHealth--;
-            screenFlash = 0.5;
-            e.muzzleFlash = 1.0;
+            e.flashActive = 10; // Trigger the pinpoint flash
             e.shotsTaken++;
             playShot(false);
-            e.fireTimer = now + 3000; // 3-second delay between shots
+            e.fireTimer = now + 3000; // One shot every 3 seconds
             updateUI();
             if (playerHealth <= 0) gameOver = true;
         }
@@ -162,27 +154,33 @@ function update() {
 }
 
 function draw() {
-    // 1. Scene Base
-    ctx.fillStyle = screenFlash > 0 ? `rgba(150, 0, 0, ${screenFlash})` : '#111';
+    // Background (No screen flash)
+    ctx.fillStyle = '#050505';
     ctx.fillRect(0,0, canvas.width, canvas.height);
-    ctx.fillStyle = '#222'; ctx.fillRect(building.x, building.y, building.w, building.h);
-    
+
+    // 1. Building and Enemies
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(building.x, building.y, building.w, building.h);
     enemies.forEach(e => {
         ctx.fillStyle = '#000'; ctx.fillRect(e.x, e.y, winW, winH);
         if (e.active) {
-            ctx.fillStyle = e.isElite ? '#fff' : '#888'; 
-            ctx.fillRect(e.x + 15, e.y + 45, winW - 30, 30);
-            ctx.beginPath(); ctx.arc(e.x + winW/2, e.y + 35, 10, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = e.isElite ? '#fff' : '#777'; 
+            ctx.fillRect(e.x + 15, e.y + 45, winW - 30, 30); // Body
+            ctx.beginPath(); ctx.arc(e.x + winW/2, e.y + 35, 10, 0, Math.PI*2); ctx.fill(); // Head
             
-            // 3mm Small Tactical Flash
-            if (e.muzzleFlash > 0) {
+            // SMALL PINPOINT MUZZLE FLASH
+            if (e.flashActive > 0) {
                 ctx.fillStyle = '#ffff00';
-                ctx.beginPath(); ctx.arc(e.x + winW/2 + 12, e.y + 45, 3, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath();
+                ctx.arc(e.x + winW/2 + 12, e.y + 45, 3, 0, Math.PI*2); // 3mm pinpoint flash
+                ctx.fill();
+                // Add a small sharp glint
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(e.x+winW/2+8, e.y+45); ctx.lineTo(e.x+winW/2+16, e.y+45); ctx.stroke();
             }
         }
     });
 
-    // 2. RESTORED PREVIOUS SEARCHLIGHT MASKING
+    // 2. Searchlight Masking (Restored Logic)
     ctx.save();
     ctx.globalCompositeOperation = 'destination-in'; 
     ctx.beginPath();
@@ -192,33 +190,30 @@ function draw() {
     ctx.fill();
     ctx.restore();
 
-    // 3. Searchlight Atmos Glow
+    // 3. Searchlight Glow
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     searchLights.forEach(s => {
         const g = ctx.createRadialGradient(s.x, s.y, s.r * 0.5, s.x, s.y, s.r);
-        g.addColorStop(0, 'rgba(255, 255, 200, 0.15)'); g.addColorStop(1, 'transparent');
+        g.addColorStop(0, 'rgba(200, 255, 180, 0.1)'); g.addColorStop(1, 'transparent');
         ctx.fillStyle = g; ctx.fillRect(0,0, canvas.width, canvas.height);
     });
     ctx.restore();
 
-    // 4. NVG Scope Overlay
+    // 4. Scope Overlay
     ctx.save();
-    ctx.strokeStyle = '#0f0'; ctx.lineWidth = 3;
+    ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(sX, sY, 180, 0, Math.PI*2); ctx.stroke();
     ctx.globalCompositeOperation = 'overlay';
-    ctx.fillStyle = 'rgba(0, 255, 0, 0.2)'; ctx.fill();
+    ctx.fillStyle = 'rgba(0, 255, 0, 0.15)'; ctx.fill();
     ctx.globalCompositeOperation = 'source-over';
-    ctx.beginPath(); ctx.lineWidth = 1;
-    ctx.moveTo(sX, sY - 180); ctx.lineTo(sX, sY + 180);
-    ctx.moveTo(sX - 180, sY); ctx.lineTo(sX + 180, sY);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sX, sY-180); ctx.lineTo(sX, sY+180); ctx.moveTo(sX-180, sY); ctx.lineTo(sX+180, sY); ctx.stroke();
     ctx.restore();
 
     if(gameOver) {
-        ctx.fillStyle = "rgba(0,0,0,0.9)"; ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.fillStyle = "red"; ctx.font = "30px Courier New"; ctx.textAlign = "center";
-        ctx.fillText("OPERATOR KIA", canvas.width/2, canvas.height/2);
+        ctx.fillStyle = "rgba(0,0,0,0.95)"; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle = "red"; ctx.font = "24px Courier New"; ctx.textAlign = "center";
+        ctx.fillText("OPERATOR ELIMINATED - CLICK TO RESTART", canvas.width/2, canvas.height/2);
     }
 }
 
